@@ -1,4 +1,3 @@
-### app/api/routes.py
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from fastapi.responses import StreamingResponse
 from typing import List, Optional
@@ -11,9 +10,8 @@ router = APIRouter()
 @router.post("/generate-360")
 async def generate_360_image(
     images: List[UploadFile] = File(...),
-    quality: Optional[str] = Form(settings.DEFAULT_QUALITY),
-    format: Optional[str] = Form(settings.DEFAULT_FORMAT),
-    resolution: Optional[str] = Form(settings.DEFAULT_RESOLUTION)
+    quality: Optional[str] = Form("medium"),
+    format: Optional[str] = Form("jpg")
 ):
     """
     Génère une image panoramique 360° à partir d'une liste d'images
@@ -21,7 +19,6 @@ async def generate_360_image(
     - **images**: Liste d'images (2-20 fichiers)
     - **quality**: Qualité de traitement (low, medium, high)
     - **format**: Format de sortie (jpg, png)
-    - **resolution**: Résolution finale (2K, 4K, 8K)
     """
     
     # Validation du nombre d'images
@@ -31,10 +28,10 @@ async def generate_360_image(
             detail="Au moins 2 images sont requises"
         )
     
-    if len(images) > settings.MAX_FILES:
+    if len(images) > getattr(settings, 'MAX_FILES', 20):
         raise HTTPException(
             status_code=400,
-            detail=f"Maximum {settings.MAX_FILES} images autorisées"
+            detail=f"Maximum {getattr(settings, 'MAX_FILES', 20)} images autorisées"
         )
     
     # Validation des paramètres
@@ -50,16 +47,10 @@ async def generate_360_image(
             detail="Format doit être: jpg ou png"
         )
     
-    if resolution not in ["2K", "4K", "8K"]:
-        raise HTTPException(
-            status_code=400,
-            detail="Résolution doit être: 2K, 4K ou 8K"
-        )
-    
     try:
         # Validation des fichiers
         for image in images:
-            if not image.content_type.startswith("image/"):
+            if not image.content_type or not image.content_type.startswith("image/"):
                 raise HTTPException(
                     status_code=400,
                     detail=f"Le fichier {image.filename} n'est pas une image valide"
@@ -70,13 +61,15 @@ async def generate_360_image(
         result_image = await stitching_service.create_360_panorama(
             images=images,
             quality=quality,
-            output_format=format,
-            resolution=resolution
+            output_format=format
         )
         
         # Préparation de la réponse
         img_io = io.BytesIO()
-        result_image.save(img_io, format=format.upper())
+        
+        # Correction du format pour PIL
+        pil_format = "JPEG" if format.lower() in ["jpg", "jpeg"] else format.upper()
+        result_image.save(img_io, format=pil_format, quality=85)
         img_io.seek(0)
         
         # Définition du type MIME
@@ -103,8 +96,8 @@ async def get_supported_formats():
     return {
         "qualities": ["low", "medium", "high"],
         "formats": ["jpg", "png"],
-        "resolutions": ["2K", "4K", "8K"],
-        "max_files": settings.MAX_FILES,
-        "max_file_size_mb": settings.MAX_FILE_SIZE // (1024 * 1024),
-        "allowed_extensions": settings.ALLOWED_EXTENSIONS
+        "default_resolution": "2048x1024",
+        "max_files": getattr(settings, 'MAX_FILES', 20),
+        "max_file_size_mb": getattr(settings, 'MAX_FILE_SIZE', 10485760) // (1024 * 1024),
+        "allowed_extensions": getattr(settings, 'ALLOWED_EXTENSIONS', [".jpg", ".jpeg", ".png"])
     }
